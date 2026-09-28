@@ -41,7 +41,8 @@ jobs:
           mkdir -p AppDir/usr/bin AppDir/usr/share/applications
           cp build/kirikiroid2-linux AppDir/usr/bin/
           cp linux/kirikiroid2-linux.desktop AppDir/usr/share/applications/
-          ./linuxdeploy.AppImage --appdir AppDir --executable AppDir/usr/bin/kirikiroid2-linux
+          cp icons/kirikiroid2-linux.png AppDir/
+          ./linuxdeploy.AppImage --appdir AppDir --executable AppDir/usr/bin/kirikiroid2-linux --desktop-file AppDir/usr/share/applications/kirikiroid2-linux.desktop --icon-file AppDir/kirikiroid2-linux.png
           ARCH=x86_64 ./appimagetool.AppImage AppDir kirikiroid2-linux-x86_64.AppImage
       - name: Upload DEB and AppImage
         uses: actions/upload-artifact@v4
