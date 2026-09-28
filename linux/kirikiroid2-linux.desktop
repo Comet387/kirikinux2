@@ -3,6 +3,7 @@ Type=Application
 Name=Kirikiroid2 (Linux)
 Comment=Kirikiroid2 native Linux host
 Exec=kirikiroid2-linux %U
+Icon=kirikiroid2-linux
 Terminal=false
 Categories=Game;Emulator;
 MimeType=application/x-kirikiri-xp3;
