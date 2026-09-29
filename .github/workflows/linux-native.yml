@@ -17,15 +17,14 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build pkg-config libx11-dev libsdl2-dev dpkg-dev wget
+          sudo apt-get install -y cmake ninja-build pkg-config libx11-dev libsdl2-dev libonig-dev zlib1g-dev dpkg-dev wget
       - name: Configure
         run: cmake -S linux -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-      - name: Build and smoke test
+      - name: Build and test
         run: |
           cmake --build build --parallel
-          ./build/kirikiroid2-linux --help
+          ctest --test-dir build --output-on-failure
           ./build/kirikiroid2-linux --probe /dev/null || test "$?" -eq 2
-          ./build/kirikiroid2-linux --no-window
       - name: Build Debian package
         run: cpack --config build/CPackConfig.cmake -B build
       - name: Install linuxdeploy tools

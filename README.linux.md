@@ -4,10 +4,30 @@ The `linux/` target is the native desktop host for the 1.3.9 source line. It doe
 
 It currently provides:
 
+- the repository's original TJS2 interpreter, built natively on Linux, with
+  command-line expression evaluation and UTF-8 script execution;
 - X11 window/input backend, with SDL2 fallback when Xlib is unavailable;
 - command-line game directory and XP3 selection plus XP3 magic validation;
+- read-only XP3 index/segment support (`--list`), including compressed indices
+  and direct UTF-8/BOM-marked UTF-16 TJS execution via `archive.xp3>entry.tjs`;
 - drag-and-drop selection in the SDL2 backend, fullscreen toggle, Escape/close handling;
-- a small `dlopen` bridge (`krkr2_linux_tick` / `krkr2_linux_shutdown`) so the platform host can be exercised independently from the engine;
+- a small `dlopen` bridge (`krkr2_linux_tick` / `krkr2_linux_shutdown`) for the
+  remaining renderer/audio integration;
 - CMake + CPack Debian packaging and a GitHub Actions workflow that produces `.deb` and AppImage artifacts.
 
-The original Android APK bundles an ARM-only `libgame.so` and vendor libraries that are not present in the public repository. The full TJS/KAG renderer and audio engine therefore still require a native rebuild of those vendor dependencies; this target keeps the parser and archive sources as the compatibility reference and does not silently substitute Kirikiri2/KirikiriZ or an emulator. See `docs/apk-1.3.9-analysis.md` and `docs/linux-port-research.md`.
+Quick checks:
+
+```sh
+./build-linux/kirikiroid2-linux --eval '1 + 2 * 3'
+./build-linux/kirikiroid2-linux --script scenario.tjs
+./build-linux/kirikiroid2-linux --list game.xp3
+./build-linux/kirikiroid2-linux --script 'game.xp3>startup.tjs'
+ctest --test-dir build-linux --output-on-failure
+```
+
+The Android APK also bundles an ARM-only `libgame.so` and vendor libraries that
+are not present in the public repository. TJS2 is now native, but a playable
+port still needs the KAG/TVP object bindings, protected-archive filters,
+renderer, input dispatch and audio backend. This target does not substitute a different
+Kirikiri engine or an emulator. See `docs/apk-1.3.9-analysis.md` and
+`docs/linux-port-research.md`.

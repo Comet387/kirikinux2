@@ -10,6 +10,15 @@
 //---------------------------------------------------------------------------
 
 
+#include <ctype.h>
+#include <limits.h>
+#include <string.h>
+#include <stdarg.h>
+#include <stdint.h>
+#include <math.h>
+#include <float.h>
+#include <climits>
+
 #include "tjsCommHead.h"
 #include <errno.h>
 #include <clocale>
@@ -20,7 +29,9 @@
 #else
 #define isfinite std::isfinite
 #endif
-#define INTMAX_MAX		0x7fffffffffffffff
+#ifndef INTMAX_MAX
+#define INTMAX_MAX 0x7fffffffffffffff
+#endif
 #include <assert.h>
 
 /*
@@ -493,8 +504,9 @@ tTJSNarrowStringHolder::tTJSNarrowStringHolder(const tjs_char * wide)
 
 	if( n == -1 )
 	{
-		Buf = TJS_N("");
-		Allocated = false;
+		Buf = new tjs_nchar[1];
+		Buf[0] = 0;
+		Allocated = true;
 		return;
 	}
 	Buf = new tjs_nchar[n+1];
@@ -722,6 +734,7 @@ void * TJS_realloc(void* buf, size_t len)
 
 void TJS_free(void *buf)
 {
+	if (!buf) return;
 	free((char*)buf - sizeof(size_t));
 }
 
@@ -735,14 +748,6 @@ tjs_char *TJS_strrchr(const tjs_char *s, int c)
 	return ret;
 }
 
-#include <ctype.h>
-#include <limits.h>
-#include <string.h>
-#include <stdarg.h>
-//#include <inttypes.h>
-#include <stdint.h>
-#include <math.h>
-#include <float.h>
 
 /* Some useful macros */
 
@@ -750,7 +755,9 @@ tjs_char *TJS_strrchr(const tjs_char *s, int c)
 #define MIN(a,b) ((a)<(b) ? (a) : (b))
 #define CONCAT2(x,y) x ## y
 #define CONCAT(x,y) CONCAT2(x,y)
+#ifndef NL_ARGMAX
 #define NL_ARGMAX 9
+#endif
 
 /* Convenient bit representation for modifier flags, which all fall
  * within 31 codepoints of the space character. */
@@ -1454,7 +1461,7 @@ static __inline unsigned long long __DOUBLE_BITS(double __f)
 #ifdef signbit
 #undef signbit
 #endif
-int signbit(long double x)
+static int tjs_signbit(long double x)
 {
     if(sizeof(x) == sizeof(float))
         return (int)(__FLOAT_BITS(x)>>31);
@@ -1487,7 +1494,7 @@ static int fmt_fp(_tFILE *f, long double y, int w, int p, int fl, int t)
     tjs_char ebuf0[3*sizeof(int)], *ebuf=&ebuf0[3*sizeof(int)], *estr;
 
     pl=1;
-    if (signbit(y)) {
+    if (tjs_signbit(y)) {
         y=-y;
     } else if (fl & MARK_POS) {
         prefix+=3;
@@ -1613,7 +1620,7 @@ static int fmt_fp(_tFILE *f, long double y, int w, int p, int fl, int t)
         x = *d % i;
         /* Are there any significant digits past j? */
         if (x || d+1!=z) {
-            long double round = 0x1<<LDBL_MANT_DIG;
+            long double round = ldexpl(1.0L, LDBL_MANT_DIG);
             long double small;
             if (*d/i & 1) round += 2;
             if (x<i/2) small=0.5;
@@ -1934,8 +1941,10 @@ int _vsnprintf(tjs_char * s, size_t n, const tjs_char * fmt, va_list ap)
     int nl_type[NL_ARGMAX+1] = {0};
     union arg nl_arg[NL_ARGMAX+1];
     unsigned char internal_buf[80], *saved_buf = 0;
-    va_list *pap = (va_list *)&ap;
-    r = printf_core(&f, fmt, pap, nl_arg, nl_type);
+    va_list args;
+    va_copy(args, ap);
+    r = printf_core(&f, fmt, &args, nl_arg, nl_type);
+    va_end(args);
 
     /* Null-terminate, overwriting last char if dest buffer is full */
     return r;

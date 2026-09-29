@@ -2,6 +2,27 @@
 
 This note records the source/APK correspondence and the native portability boundary.
 
+## Port milestones
+
+- The native host now compiles and links the original `src/core/tjs2` runtime.
+  `--eval` and `--script` provide headless bring-up paths, including Unicode,
+  exception and format-string regression coverage.
+- Linux portability fixes cover standard headers outside the `TJS` namespace,
+  `va_list` copying on x86_64, null-safe allocator cleanup and optional
+  Oniguruma support.
+- The native host can list raw/zlib XP3 indices, read segmented entries and run
+  UTF-8/UTF-16 TJS directly from an archive. Protected entries are detected and
+  rejected until their game-specific extraction filter is registered.
+- The next playable milestone is a minimal TVP layer: expose the XP3 reader as
+  binary/text storage, register the KAG-visible native classes used during
+  startup, and dispatch rendering into the existing X11/SDL2 loop. Audio and
+  video decoding can remain disabled until that path reaches a static scene.
+
+The Android-first Yuri fork is useful for modern CMake/dependency structure;
+the `kirikiroid2_fork3` Linux experiment confirms the required `va_list` and
+platform shims. Neither is imported wholesale because their Cocos2d/vendor
+layouts are much larger than this repository's incremental native target.
+
 ## Source tree
 
 - Repository: `zeas2/Kirikiroid2`.
@@ -21,4 +42,3 @@ This note records the source/APK correspondence and the native portability bound
 ## Startup and behavior relevant to a desktop frontend
 
 `AppDelegate::applicationDidFinishLaunching` creates a Cocos GL view, design resolution 960x640 with `SHOW_ALL`, initializes locales/UI and creates `TVPMainScene`. On Android `TVPCheckStartupArg()` returns false, so the first screen is `MainFileSelectorForm`; selecting a game path calls `TVPMainScene::startupFrom`, then `Application::StartApplication(path)`. The desktop frontend should preserve this path selection and pass keyboard, mouse, text/IME, wheel, and controller events into the TVP scene.
-

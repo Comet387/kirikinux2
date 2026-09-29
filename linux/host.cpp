@@ -1,4 +1,8 @@
 #include "kirkr_host.h"
+#include "xp3_archive.h"
+#ifdef KRKR2_HAVE_TJS
+#include "tjs_runtime.h"
+#endif
 
 #include <algorithm>
 #include <array>
@@ -182,6 +186,64 @@ bool resolve_game(const std::string &path, GamePath &result, std::string &error)
 }
 
 int run_host(const HostOptions &options) {
+#ifdef KRKR2_HAVE_TJS
+  if (options.expression || options.script) {
+    TjsRunResult result;
+    if (options.script) {
+      const std::size_t delimiter = options.script->find('>');
+      if (delimiter == std::string::npos) {
+        result = execute_tjs_file(*options.script);
+      } else if (delimiter == 0 || delimiter + 1 == options.script->size()) {
+        result.error = "XP3 script name must be ARCHIVE>ENTRY";
+      } else {
+        Xp3Archive archive;
+        std::string error;
+        std::vector<std::uint8_t> source;
+        const std::string archive_name = options.script->substr(0, delimiter);
+        const std::string entry_name = options.script->substr(delimiter + 1);
+        if (!archive.open(archive_name, error) ||
+            !archive.read(entry_name, source, error)) {
+          result.error = error;
+        } else {
+          result = execute_tjs_bytes(source, *options.script);
+        }
+      }
+    } else {
+      result = evaluate_tjs(*options.expression);
+    }
+    if (!result.ok) {
+      std::cerr << "kirikiroid2: TJS2: " << result.error << '\n';
+      return 5;
+    }
+    if (result.has_value) std::cout << result.value << '\n';
+    return 0;
+  }
+#else
+  if (options.expression || options.script) {
+    std::cerr << "kirikiroid2: this build does not include the TJS2 interpreter\n";
+    return 5;
+  }
+#endif
+
+  if (options.list_archive) {
+    if (options.game.empty()) {
+      std::cerr << "kirikiroid2: --list requires an XP3 archive path\n";
+      return 64;
+    }
+    Xp3Archive archive;
+    std::string error;
+    if (!archive.open(options.game, error)) {
+      std::cerr << "kirikiroid2: " << error << '\n';
+      return 6;
+    }
+    for (const Xp3Entry &entry : archive.entries()) {
+      std::cout << entry.original_size << '\t' << entry.archive_size << '\t'
+                << ((entry.flags & (std::uint32_t{1} << 31)) ? "protected\t" : "-\t")
+                << entry.name << '\n';
+    }
+    return 0;
+  }
+
   GamePath game;
   std::string error;
   if (!options.game.empty() && !resolve_game(options.game, game, error)) {
