@@ -1,0 +1,13 @@
+if (!Storages.isExistentStorage("system/init.tjs"))
+    throw "missing nested directory storage";
+if (Storages.extractStorageExt("system/init.tjs") != "tjs")
+    throw "storage extension mismatch";
+if (Storages.extractStorageName("system/init.tjs") != "init.tjs")
+    throw "storage name mismatch";
+if (Storages.isExistentStorage("../smoke.tjs"))
+    throw "storage root escape";
+if (Storages.getPlacedPath("system/init.tjs") == "")
+    throw "placed path missing";
+if (Scripts.evalStorage("system/value.tjs") != 42)
+    throw "nested storage eval failed";
+Scripts.execStorage("SYSTEM/INIT.TJS");

@@ -25,14 +25,20 @@ of the interpreter builds without it.
 ./build-linux/kirikiroid2-linux --eval '1 + 2 * 3'
 ./build-linux/kirikiroid2-linux --script scenario.tjs
 ./build-linux/kirikiroid2-linux --script 'game.xp3>startup.tjs'
+./build-linux/kirikiroid2-linux --run game-directory
+./build-linux/kirikiroid2-linux --run game.xp3
 ./build-linux/kirikiroid2-linux game.xp3
 ```
 
 The host validates the XP3 magic (`XP3\\r\\n \\n\\x1a\\x8b\\x67\\x01`) before entering the
 event loop. It links the original TJS2 sources directly and can evaluate an
 expression, execute UTF-8/BOM-marked UTF-16 source files, list XP3 contents, and execute
-an unprotected script directly from a raw/zlib XP3 segment. KAG/TVP bindings,
-encrypted-archive filters, rendering and audio are not connected yet. An engine
+an unprotected script directly from a raw/zlib XP3 segment. The remaining
+KAG/TVP objects, encrypted-archive filters, rendering and audio are not
+connected yet. `--run` adds the first compatibility slice:
+`Scripts.execStorage`, `Scripts.evalStorage`, `Scripts.exec`, `Scripts.eval`,
+and common read-only `Storages` helpers share one TJS2 instance and one bounded
+game root. An engine
 shared object can be supplied with `--engine`; the optional bridge
 exports two C symbols:
 

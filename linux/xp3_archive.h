@@ -28,6 +28,7 @@ class Xp3Archive {
   bool open(const std::string &path, std::string &error);
   bool read(const std::string &name, std::vector<std::uint8_t> &data,
             std::string &error) const;
+  bool contains(const std::string &name) const;
 
   const std::vector<Xp3Entry> &entries() const { return entries_; }
 

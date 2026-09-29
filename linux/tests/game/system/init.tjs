@@ -1,0 +1,1 @@
+if (Scripts.eval("6 * 7") != 42) throw "nested directory eval failed";

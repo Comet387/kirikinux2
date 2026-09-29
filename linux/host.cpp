@@ -187,26 +187,24 @@ bool resolve_game(const std::string &path, GamePath &result, std::string &error)
 
 int run_host(const HostOptions &options) {
 #ifdef KRKR2_HAVE_TJS
-  if (options.expression || options.script) {
+  if (options.expression || options.script || options.run_startup) {
     TjsRunResult result;
-    if (options.script) {
+    if (options.run_startup) {
+      if (options.game.empty()) {
+        std::cerr << "kirikiroid2: --run requires a game directory or XP3 archive\n";
+        return 64;
+      }
+      result = execute_tjs_startup(options.game);
+    } else if (options.script) {
       const std::size_t delimiter = options.script->find('>');
       if (delimiter == std::string::npos) {
         result = execute_tjs_file(*options.script);
       } else if (delimiter == 0 || delimiter + 1 == options.script->size()) {
         result.error = "XP3 script name must be ARCHIVE>ENTRY";
       } else {
-        Xp3Archive archive;
-        std::string error;
-        std::vector<std::uint8_t> source;
         const std::string archive_name = options.script->substr(0, delimiter);
         const std::string entry_name = options.script->substr(delimiter + 1);
-        if (!archive.open(archive_name, error) ||
-            !archive.read(entry_name, source, error)) {
-          result.error = error;
-        } else {
-          result = execute_tjs_bytes(source, *options.script);
-        }
+        result = execute_tjs_storage(archive_name, entry_name);
       }
     } else {
       result = evaluate_tjs(*options.expression);
@@ -216,10 +214,12 @@ int run_host(const HostOptions &options) {
       return 5;
     }
     if (result.has_value) std::cout << result.value << '\n';
+    if (options.run_startup)
+      std::cout << "kirikiroid2: startup script completed\n";
     return 0;
   }
 #else
-  if (options.expression || options.script) {
+  if (options.expression || options.script || options.run_startup) {
     std::cerr << "kirikiroid2: this build does not include the TJS2 interpreter\n";
     return 5;
   }

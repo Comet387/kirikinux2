@@ -53,7 +53,7 @@ if(KRKR2_WITH_SDL2)
   endif()
 endif()
 
-set(KRKR2_HOST_SOURCES main.cpp host.cpp xp3_archive.cpp)
+set(KRKR2_HOST_SOURCES main.cpp host.cpp storage_root.cpp xp3_archive.cpp)
 
 if(KRKR2_WITH_TJS)
   file(GLOB KRKR2_TJS_SOURCES CONFIGURE_DEPENDS
@@ -131,6 +131,14 @@ if(BUILD_TESTING)
     set_tests_properties(tjs-invalid-expression PROPERTIES WILL_FAIL TRUE)
     add_test(NAME tjs-script COMMAND kirikiroid2-linux --script
       "${CMAKE_CURRENT_LIST_DIR}/tests/smoke.tjs")
+    add_test(NAME tjs-directory-startup COMMAND kirikiroid2-linux --run
+      "${CMAKE_CURRENT_LIST_DIR}/tests/game")
+    set_tests_properties(tjs-directory-startup PROPERTIES
+      PASS_REGULAR_EXPRESSION "startup script completed")
+    add_test(NAME tjs-directory-fallback COMMAND kirikiroid2-linux --run
+      "${CMAKE_CURRENT_LIST_DIR}/tests/fallback")
+    set_tests_properties(tjs-directory-fallback PROPERTIES
+      PASS_REGULAR_EXPRESSION "startup script completed")
     if(KRKR2_ONIG_INCLUDE_DIR AND KRKR2_ONIG_LIBRARY)
       add_test(NAME tjs-regexp COMMAND kirikiroid2-linux --eval
         "/linux/i.test(\"Linux\")")
@@ -145,6 +153,14 @@ if(BUILD_TESTING)
         "${KRKR2_TEST_RAW_XP3}>startup.tjs")
       set_tests_properties(tjs-xp3-script-raw PROPERTIES
         FIXTURES_REQUIRED xp3_raw_fixture)
+      add_test(NAME tjs-xp3-startup COMMAND kirikiroid2-linux --run
+        "${KRKR2_TEST_XP3}")
+      set_tests_properties(tjs-xp3-startup PROPERTIES
+        FIXTURES_REQUIRED xp3_fixture PASS_REGULAR_EXPRESSION "startup script completed")
+      add_test(NAME tjs-xp3-startup-raw COMMAND kirikiroid2-linux --run
+        "${KRKR2_TEST_RAW_XP3}")
+      set_tests_properties(tjs-xp3-startup-raw PROPERTIES
+        FIXTURES_REQUIRED xp3_raw_fixture PASS_REGULAR_EXPRESSION "startup script completed")
     endif()
   endif()
 endif()

@@ -28,6 +28,7 @@ struct HostOptions {
   bool fullscreen = false;
   bool probe_only = false;
   bool list_archive = false;
+  bool run_startup = false;
   bool no_window = false;
   std::string engine_library;
   std::string game;

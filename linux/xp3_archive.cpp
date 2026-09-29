@@ -416,4 +416,11 @@ bool Xp3Archive::read(const std::string &name, std::vector<std::uint8_t> &data,
   return true;
 }
 
+bool Xp3Archive::contains(const std::string &name) const {
+  const std::string wanted = normalized_name(name);
+  return std::any_of(entries_.begin(), entries_.end(), [&](const Xp3Entry &entry) {
+    return normalized_name(entry.name) == wanted;
+  });
+}
+
 } // namespace krkr2

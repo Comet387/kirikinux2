@@ -1,7 +1,11 @@
 #include "tjs_runtime.h"
 
+#include "storage_root.h"
+
 #include "tjs.h"
+#include "tjsDictionary.h"
 #include "tjsError.h"
+#include "tjsNative.h"
 
 #include <fstream>
 #include <iterator>
@@ -73,6 +77,255 @@ bool decode_source(const std::vector<std::uint8_t> &bytes, std::string &text) {
   text.assign(reinterpret_cast<const char *>(bytes.data() + offset),
               bytes.size() - offset);
   return text.find('\0') == std::string::npos;
+}
+
+struct ActiveStorageRuntime {
+  tTJS *engine = nullptr;
+  StorageRoot *storage = nullptr;
+};
+
+thread_local ActiveStorageRuntime *active_storage_runtime = nullptr;
+
+class ActiveStorageGuard {
+ public:
+  explicit ActiveStorageGuard(ActiveStorageRuntime *runtime)
+      : previous_(active_storage_runtime) {
+    active_storage_runtime = runtime;
+  }
+  ~ActiveStorageGuard() { active_storage_runtime = previous_; }
+
+ private:
+  ActiveStorageRuntime *previous_;
+};
+
+void throw_storage_error(const std::string &message) {
+  TJS_eTJSError(ttstr(message));
+}
+
+std::string variant_string(tTJSVariant *value) {
+  return ttstr(*value).AsStdString();
+}
+
+void execute_storage_entry(const std::string &entry, bool expression,
+                           tTJSVariant *result, iTJSDispatch2 *context) {
+  if (!active_storage_runtime || !active_storage_runtime->engine ||
+      !active_storage_runtime->storage) {
+    throw_storage_error("no active Linux storage root");
+    return;
+  }
+  std::vector<std::uint8_t> source;
+  std::string error;
+  if (!active_storage_runtime->storage->read(entry, source, error)) {
+    throw_storage_error(error);
+    return;
+  }
+  std::string decoded;
+  if (!decode_source(source, decoded)) {
+    throw_storage_error("invalid UTF-16 source or embedded NUL byte: " + entry);
+    return;
+  }
+  std::string placed = active_storage_runtime->storage->placed_path(entry);
+  if (placed.empty()) placed = entry;
+  const ttstr source_name(placed);
+  if (expression) {
+    active_storage_runtime->engine->EvalExpression(
+        ttstr(decoded), result, context, &source_name);
+  } else {
+    active_storage_runtime->engine->ExecScript(
+        ttstr(decoded), result, context, &source_name);
+  }
+}
+
+tjs_error TJS_INTF_METHOD scripts_exec_storage(
+    tTJSVariant *result, tjs_int numparams, tTJSVariant **param,
+    iTJSDispatch2 *) {
+  if (numparams < 1) return TJS_E_BADPARAMCOUNT;
+  iTJSDispatch2 *context = numparams >= 3 && param[2]->Type() != tvtVoid
+      ? param[2]->AsObjectNoAddRef() : nullptr;
+  execute_storage_entry(variant_string(param[0]), false, result, context);
+  return TJS_S_OK;
+}
+
+tjs_error TJS_INTF_METHOD scripts_eval_storage(
+    tTJSVariant *result, tjs_int numparams, tTJSVariant **param,
+    iTJSDispatch2 *) {
+  if (numparams < 1) return TJS_E_BADPARAMCOUNT;
+  iTJSDispatch2 *context = numparams >= 3 && param[2]->Type() != tvtVoid
+      ? param[2]->AsObjectNoAddRef() : nullptr;
+  execute_storage_entry(variant_string(param[0]), true, result, context);
+  return TJS_S_OK;
+}
+
+tjs_error TJS_INTF_METHOD scripts_exec(
+    tTJSVariant *result, tjs_int numparams, tTJSVariant **param,
+    iTJSDispatch2 *) {
+  if (numparams < 1) return TJS_E_BADPARAMCOUNT;
+  if (!active_storage_runtime || !active_storage_runtime->engine)
+    return TJS_E_NATIVECLASSCRASH;
+  const ttstr content = *param[0];
+  const ttstr name = numparams >= 2 && param[1]->Type() != tvtVoid
+      ? ttstr(*param[1]) : ttstr(TJS_W("script string"));
+  const tjs_int line_offset = numparams >= 3 && param[2]->Type() != tvtVoid
+      ? static_cast<tjs_int>(*param[2]) : 0;
+  iTJSDispatch2 *context = numparams >= 4 && param[3]->Type() != tvtVoid
+      ? param[3]->AsObjectNoAddRef() : nullptr;
+  active_storage_runtime->engine->ExecScript(
+      content, result, context, &name, line_offset);
+  return TJS_S_OK;
+}
+
+tjs_error TJS_INTF_METHOD scripts_eval(
+    tTJSVariant *result, tjs_int numparams, tTJSVariant **param,
+    iTJSDispatch2 *) {
+  if (numparams < 1) return TJS_E_BADPARAMCOUNT;
+  if (!active_storage_runtime || !active_storage_runtime->engine)
+    return TJS_E_NATIVECLASSCRASH;
+  const ttstr content = *param[0];
+  const ttstr name = numparams >= 2 && param[1]->Type() != tvtVoid
+      ? ttstr(*param[1]) : ttstr(TJS_W("script expression"));
+  const tjs_int line_offset = numparams >= 3 && param[2]->Type() != tvtVoid
+      ? static_cast<tjs_int>(*param[2]) : 0;
+  iTJSDispatch2 *context = numparams >= 4 && param[3]->Type() != tvtVoid
+      ? param[3]->AsObjectNoAddRef() : nullptr;
+  active_storage_runtime->engine->EvalExpression(
+      content, result, context, &name, line_offset);
+  return TJS_S_OK;
+}
+
+tjs_error TJS_INTF_METHOD storages_exists(
+    tTJSVariant *result, tjs_int numparams, tTJSVariant **param,
+    iTJSDispatch2 *) {
+  if (numparams < 1) return TJS_E_BADPARAMCOUNT;
+  if (!active_storage_runtime || !active_storage_runtime->storage)
+    return TJS_E_NATIVECLASSCRASH;
+  if (result) {
+    *result = static_cast<tjs_int>(
+        active_storage_runtime->storage->exists(variant_string(param[0])));
+  }
+  return TJS_S_OK;
+}
+
+tjs_error TJS_INTF_METHOD storages_placed_path(
+    tTJSVariant *result, tjs_int numparams, tTJSVariant **param,
+    iTJSDispatch2 *) {
+  if (numparams < 1) return TJS_E_BADPARAMCOUNT;
+  if (!active_storage_runtime || !active_storage_runtime->storage)
+    return TJS_E_NATIVECLASSCRASH;
+  if (result) {
+    *result = ttstr(active_storage_runtime->storage->placed_path(
+        variant_string(param[0])));
+  }
+  return TJS_S_OK;
+}
+
+std::size_t storage_delimiter(const std::string &path) {
+  return path.find_last_of("/\\>");
+}
+
+tjs_error TJS_INTF_METHOD storages_extract_name(
+    tTJSVariant *result, tjs_int numparams, tTJSVariant **param,
+    iTJSDispatch2 *) {
+  if (numparams < 1) return TJS_E_BADPARAMCOUNT;
+  const std::string path = variant_string(param[0]);
+  const std::size_t split = storage_delimiter(path);
+  if (result) *result = ttstr(split == std::string::npos ? path : path.substr(split + 1));
+  return TJS_S_OK;
+}
+
+tjs_error TJS_INTF_METHOD storages_extract_path(
+    tTJSVariant *result, tjs_int numparams, tTJSVariant **param,
+    iTJSDispatch2 *) {
+  if (numparams < 1) return TJS_E_BADPARAMCOUNT;
+  const std::string path = variant_string(param[0]);
+  const std::size_t split = storage_delimiter(path);
+  if (result) *result = ttstr(split == std::string::npos ? std::string() :
+                              path.substr(0, split + 1));
+  return TJS_S_OK;
+}
+
+tjs_error TJS_INTF_METHOD storages_extract_ext(
+    tTJSVariant *result, tjs_int numparams, tTJSVariant **param,
+    iTJSDispatch2 *) {
+  if (numparams < 1) return TJS_E_BADPARAMCOUNT;
+  const std::string path = variant_string(param[0]);
+  const std::size_t split = storage_delimiter(path);
+  const std::size_t dot = path.find_last_of('.');
+  const std::string extension = dot == std::string::npos ||
+      (split != std::string::npos && dot < split) ? std::string() : path.substr(dot + 1);
+  if (result) *result = ttstr(extension);
+  return TJS_S_OK;
+}
+
+tjs_error TJS_INTF_METHOD storages_chop_ext(
+    tTJSVariant *result, tjs_int numparams, tTJSVariant **param,
+    iTJSDispatch2 *) {
+  if (numparams < 1) return TJS_E_BADPARAMCOUNT;
+  std::string path = variant_string(param[0]);
+  const std::size_t split = storage_delimiter(path);
+  const std::size_t dot = path.find_last_of('.');
+  if (dot != std::string::npos && (split == std::string::npos || dot > split))
+    path.erase(dot);
+  if (result) *result = ttstr(path);
+  return TJS_S_OK;
+}
+
+tjs_error TJS_INTF_METHOD storage_noop(
+    tTJSVariant *result, tjs_int, tTJSVariant **, iTJSDispatch2 *) {
+  if (result) result->Clear();
+  return TJS_S_OK;
+}
+
+void set_method(iTJSDispatch2 *object, const tjs_char *name,
+                tTJSNativeClassMethodCallback callback) {
+  iTJSDispatch2 *method = TJSCreateNativeClassMethod(callback);
+  tTJSVariant value(method, method);
+  method->Release();
+  const tjs_error status = object->PropSet(
+      TJS_MEMBERENSURE | TJS_IGNOREPROP, name, nullptr, &value, object);
+  if (TJS_FAILED(status)) throw_storage_error("cannot register Linux TJS method");
+}
+
+void set_global_object(tTJS *engine, const tjs_char *name,
+                       iTJSDispatch2 *object) {
+  tTJSVariant value(object, object);
+  const tjs_error status = engine->GetGlobalNoAddRef()->PropSet(
+      TJS_MEMBERENSURE | TJS_IGNOREPROP, name, nullptr, &value,
+      engine->GetGlobalNoAddRef());
+  if (TJS_FAILED(status)) throw_storage_error("cannot register Linux TJS object");
+}
+
+void install_storage_compatibility(tTJS *engine) {
+  iTJSDispatch2 *scripts = TJSCreateDictionaryObject();
+  try {
+    set_method(scripts, TJS_W("execStorage"), scripts_exec_storage);
+    set_method(scripts, TJS_W("evalStorage"), scripts_eval_storage);
+    set_method(scripts, TJS_W("exec"), scripts_exec);
+    set_method(scripts, TJS_W("eval"), scripts_eval);
+    set_global_object(engine, TJS_W("Scripts"), scripts);
+  } catch (...) {
+    scripts->Release();
+    throw;
+  }
+  scripts->Release();
+
+  iTJSDispatch2 *storages = TJSCreateDictionaryObject();
+  try {
+    set_method(storages, TJS_W("isExistentStorage"), storages_exists);
+    set_method(storages, TJS_W("getPlacedPath"), storages_placed_path);
+    set_method(storages, TJS_W("getFullPath"), storages_placed_path);
+    set_method(storages, TJS_W("extractStorageExt"), storages_extract_ext);
+    set_method(storages, TJS_W("extractStorageName"), storages_extract_name);
+    set_method(storages, TJS_W("extractStoragePath"), storages_extract_path);
+    set_method(storages, TJS_W("chopStorageExt"), storages_chop_ext);
+    set_method(storages, TJS_W("addAutoPath"), storage_noop);
+    set_method(storages, TJS_W("removeAutoPath"), storage_noop);
+    set_method(storages, TJS_W("clearArchiveCache"), storage_noop);
+    set_global_object(engine, TJS_W("Storages"), storages);
+  } catch (...) {
+    storages->Release();
+    throw;
+  }
+  storages->Release();
 }
 
 TjsRunResult make_value(tTJSVariant &value) {
@@ -172,6 +425,49 @@ TjsRunResult execute_tjs_bytes(const std::vector<std::uint8_t> &source,
   return run_tjs([&](tTJS *engine, tTJSVariant &result) {
     const ttstr name(source_name);
     engine->ExecScript(ttstr(decoded), &result, nullptr, &name);
+  });
+}
+
+TjsRunResult execute_tjs_storage(const std::string &root,
+                                 const std::string &entry) {
+  StorageRoot storage;
+  std::string error;
+  if (!storage.open(root, error)) {
+    TjsRunResult result;
+    result.error = error;
+    return result;
+  }
+  return run_tjs([&](tTJS *engine, tTJSVariant &result) {
+    ActiveStorageRuntime runtime{engine, &storage};
+    ActiveStorageGuard guard(&runtime);
+    install_storage_compatibility(engine);
+    execute_storage_entry(entry, false, &result, nullptr);
+  });
+}
+
+TjsRunResult execute_tjs_startup(const std::string &root) {
+  StorageRoot storage;
+  std::string error;
+  if (!storage.open(root, error)) {
+    TjsRunResult result;
+    result.error = error;
+    return result;
+  }
+  std::string startup;
+  if (storage.exists("startup.tjs")) {
+    startup = "startup.tjs";
+  } else if (storage.exists("System/Initialize.tjs")) {
+    startup = "System/Initialize.tjs";
+  } else {
+    TjsRunResult result;
+    result.error = "neither startup.tjs nor System/Initialize.tjs exists in " + root;
+    return result;
+  }
+  return run_tjs([&](tTJS *engine, tTJSVariant &result) {
+    ActiveStorageRuntime runtime{engine, &storage};
+    ActiveStorageGuard guard(&runtime);
+    install_storage_compatibility(engine);
+    execute_storage_entry(startup, false, &result, nullptr);
   });
 }
 

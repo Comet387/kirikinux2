@@ -13,9 +13,13 @@ This note records the source/APK correspondence and the native portability bound
 - The native host can list raw/zlib XP3 indices, read segmented entries and run
   UTF-8/UTF-16 TJS directly from an archive. Protected entries are detected and
   rejected until their game-specific extraction filter is registered.
+- `--run` now reproduces the first part of `TVPInitializeScriptEngine`: it picks
+  `startup.tjs` (or `System/Initialize.tjs`), keeps nested execution in one TJS2
+  instance, and exposes the early `Scripts` and read-only `Storages` methods.
 - The next playable milestone is a minimal TVP layer: expose the XP3 reader as
-  binary/text storage, register the KAG-visible native classes used during
-  startup, and dispatch rendering into the existing X11/SDL2 loop. Audio and
+  the engine's binary/text stream callbacks, register KAGParser plus the
+  System/Window/Layer classes used during startup, and dispatch rendering into
+  the existing X11/SDL2 loop. Audio and
   video decoding can remain disabled until that path reaches a static scene.
 
 The Android-first Yuri fork is useful for modern CMake/dependency structure;

@@ -23,4 +23,11 @@ TjsRunResult execute_tjs_file(const std::string &path);
 TjsRunResult execute_tjs_bytes(const std::vector<std::uint8_t> &source,
                                const std::string &source_name);
 
+/** Execute one entry with Scripts/Storages bound to a directory or XP3 root. */
+TjsRunResult execute_tjs_storage(const std::string &root,
+                                 const std::string &entry);
+
+/** Execute startup.tjs, falling back to System/Initialize.tjs. */
+TjsRunResult execute_tjs_startup(const std::string &root);
+
 } // namespace krkr2

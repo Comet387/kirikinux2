@@ -15,6 +15,7 @@ static void usage(const char *name) {
             << "Usage: " << name << " [options] [game-dir|game.xp3]\n"
             << "  --probe             validate path and exit\n"
             << "  --list              list entries in the positional XP3 archive\n"
+            << "  --run               run startup.tjs from the game directory/XP3\n"
             << "  --no-window         initialize host without opening X11/SDL2\n"
             << "  --engine FILE       load optional bridge library\n"
             << "  --eval EXPR         evaluate a TJS2 expression and exit\n"
@@ -40,6 +41,8 @@ int main(int argc, char **argv) {
       options.probe_only = true;
     } else if (arg == "--list") {
       options.list_archive = true;
+    } else if (arg == "--run") {
+      options.run_startup = true;
     } else if (arg == "--no-window") {
       options.no_window = true;
     } else if (arg == "--fullscreen") {
@@ -67,10 +70,11 @@ int main(int argc, char **argv) {
     }
   }
   const int actions = static_cast<int>(options.probe_only) +
-      static_cast<int>(options.list_archive) + static_cast<int>(options.expression.has_value()) +
+      static_cast<int>(options.list_archive) + static_cast<int>(options.run_startup) +
+      static_cast<int>(options.expression.has_value()) +
       static_cast<int>(options.script.has_value());
   if (actions > 1) {
-    std::cerr << "--probe, --list, --eval and --script cannot be combined\n";
+    std::cerr << "--probe, --list, --run, --eval and --script cannot be combined\n";
     return 64;
   }
   return krkr2::run_host(options);
