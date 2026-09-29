@@ -3,12 +3,18 @@
 #include "storage_root.h"
 
 #include "tjs.h"
+#include "tjsArray.h"
 #include "tjsDictionary.h"
 #include "tjsError.h"
 #include "tjsNative.h"
 
+#include <algorithm>
+#include <chrono>
+#include <cctype>
 #include <fstream>
+#include <iostream>
 #include <iterator>
+#include <vector>
 
 namespace krkr2 {
 namespace {
@@ -82,6 +88,7 @@ bool decode_source(const std::vector<std::uint8_t> &bytes, std::string &text) {
 struct ActiveStorageRuntime {
   tTJS *engine = nullptr;
   StorageRoot *storage = nullptr;
+  std::vector<std::string> auto_paths;
 };
 
 thread_local ActiveStorageRuntime *active_storage_runtime = nullptr;
@@ -102,6 +109,30 @@ void throw_storage_error(const std::string &message) {
   TJS_eTJSError(ttstr(message));
 }
 
+bool resolve_storage_entry(const std::string &requested, std::string &resolved) {
+  if (!active_storage_runtime || !active_storage_runtime->storage) return false;
+  if (active_storage_runtime->storage->exists(requested)) {
+    resolved = requested;
+    return true;
+  }
+  for (auto path = active_storage_runtime->auto_paths.rbegin();
+       path != active_storage_runtime->auto_paths.rend(); ++path) {
+    // A full "archive.xp3>" auto path refers to another storage root.  The
+    // current host does not open sibling archives yet, but internal prefixes
+    // (the normal KAG system/, scenario/, image/ entries) are supported.
+    if (path->find('>') != std::string::npos) continue;
+    std::string candidate = *path;
+    if (!candidate.empty() && candidate.back() != '/' &&
+        candidate.back() != '\\') candidate.push_back('/');
+    candidate += requested;
+    if (active_storage_runtime->storage->exists(candidate)) {
+      resolved = std::move(candidate);
+      return true;
+    }
+  }
+  return false;
+}
+
 std::string variant_string(tTJSVariant *value) {
   return ttstr(*value).AsStdString();
 }
@@ -115,7 +146,12 @@ void execute_storage_entry(const std::string &entry, bool expression,
   }
   std::vector<std::uint8_t> source;
   std::string error;
-  if (!active_storage_runtime->storage->read(entry, source, error)) {
+  std::string resolved;
+  if (!resolve_storage_entry(entry, resolved)) {
+    throw_storage_error("storage not found: " + entry);
+    return;
+  }
+  if (!active_storage_runtime->storage->read(resolved, source, error)) {
     throw_storage_error(error);
     return;
   }
@@ -124,8 +160,8 @@ void execute_storage_entry(const std::string &entry, bool expression,
     throw_storage_error("invalid UTF-16 source or embedded NUL byte: " + entry);
     return;
   }
-  std::string placed = active_storage_runtime->storage->placed_path(entry);
-  if (placed.empty()) placed = entry;
+  std::string placed = active_storage_runtime->storage->placed_path(resolved);
+  if (placed.empty()) placed = resolved;
   const ttstr source_name(placed);
   if (expression) {
     active_storage_runtime->engine->EvalExpression(
@@ -199,8 +235,9 @@ tjs_error TJS_INTF_METHOD storages_exists(
   if (!active_storage_runtime || !active_storage_runtime->storage)
     return TJS_E_NATIVECLASSCRASH;
   if (result) {
-    *result = static_cast<tjs_int>(
-        active_storage_runtime->storage->exists(variant_string(param[0])));
+    std::string resolved;
+    *result = static_cast<tjs_int>(resolve_storage_entry(
+        variant_string(param[0]), resolved));
   }
   return TJS_S_OK;
 }
@@ -212,8 +249,11 @@ tjs_error TJS_INTF_METHOD storages_placed_path(
   if (!active_storage_runtime || !active_storage_runtime->storage)
     return TJS_E_NATIVECLASSCRASH;
   if (result) {
-    *result = ttstr(active_storage_runtime->storage->placed_path(
-        variant_string(param[0])));
+    std::string resolved;
+    if (resolve_storage_entry(variant_string(param[0]), resolved))
+      *result = ttstr(active_storage_runtime->storage->placed_path(resolved));
+    else
+      *result = ttstr(TJS_W(""));
   }
   return TJS_S_OK;
 }
@@ -275,6 +315,103 @@ tjs_error TJS_INTF_METHOD storage_noop(
   return TJS_S_OK;
 }
 
+tjs_error TJS_INTF_METHOD storages_add_auto_path(
+    tTJSVariant *result, tjs_int numparams, tTJSVariant **param,
+    iTJSDispatch2 *) {
+  if (numparams < 1) return TJS_E_BADPARAMCOUNT;
+  if (!active_storage_runtime) return TJS_E_NATIVECLASSCRASH;
+  const std::string path = variant_string(param[0]);
+  auto &paths = active_storage_runtime->auto_paths;
+  paths.erase(std::remove(paths.begin(), paths.end(), path), paths.end());
+  paths.push_back(path);
+  if (result) result->Clear();
+  return TJS_S_OK;
+}
+
+tjs_error TJS_INTF_METHOD storages_remove_auto_path(
+    tTJSVariant *result, tjs_int numparams, tTJSVariant **param,
+    iTJSDispatch2 *) {
+  if (numparams < 1) return TJS_E_BADPARAMCOUNT;
+  if (!active_storage_runtime) return TJS_E_NATIVECLASSCRASH;
+  const std::string path = variant_string(param[0]);
+  auto &paths = active_storage_runtime->auto_paths;
+  paths.erase(std::remove(paths.begin(), paths.end(), path), paths.end());
+  if (result) result->Clear();
+  return TJS_S_OK;
+}
+
+tjs_error TJS_INTF_METHOD debug_message(
+    tTJSVariant *result, tjs_int numparams, tTJSVariant **param,
+    iTJSDispatch2 *) {
+  for (tjs_int index = 0; index < numparams; ++index) {
+    if (index) std::clog << ' ';
+    std::clog << variant_string(param[index]);
+  }
+  std::clog << '\n';
+  if (result) result->Clear();
+  return TJS_S_OK;
+}
+
+tjs_error TJS_INTF_METHOD debug_get_tick_count(
+    tTJSVariant *result, tjs_int, tTJSVariant **, iTJSDispatch2 *) {
+  const auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now().time_since_epoch()).count();
+  if (result) *result = static_cast<tTVInteger>(milliseconds);
+  return TJS_S_OK;
+}
+
+std::string ascii_lower_copy(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+    return static_cast<char>(std::tolower(ch));
+  });
+  return value;
+}
+
+tjs_error TJS_INTF_METHOD plugins_link(
+    tTJSVariant *result, tjs_int numparams, tTJSVariant **param,
+    iTJSDispatch2 *) {
+  if (numparams < 1) return TJS_E_BADPARAMCOUNT;
+  const std::string name = ascii_lower_copy(variant_string(param[0]));
+  if (name != "layereximage.dll") {
+    throw_storage_error("unsupported Windows plugin in Linux build: " + name);
+    return TJS_E_FAIL;
+  }
+  if (result) *result = static_cast<tjs_int>(1);
+  return TJS_S_OK;
+}
+
+tjs_error TJS_INTF_METHOD plugins_unlink(
+    tTJSVariant *result, tjs_int numparams, tTJSVariant **param,
+    iTJSDispatch2 *) {
+  if (numparams < 1) return TJS_E_BADPARAMCOUNT;
+  const std::string name = ascii_lower_copy(variant_string(param[0]));
+  if (result) *result = static_cast<tjs_int>(name == "layereximage.dll");
+  return TJS_S_OK;
+}
+
+tjs_error TJS_INTF_METHOD plugins_get_list(
+    tTJSVariant *result, tjs_int, tTJSVariant **, iTJSDispatch2 *) {
+  if (!result) return TJS_S_OK;
+  iTJSDispatch2 *array = TJSCreateArrayObject();
+  tTJSVariant item(TJS_W("layerExImage.dll"));
+  const tjs_error status = array->PropSetByNum(
+      TJS_MEMBERENSURE | TJS_IGNOREPROP, 0, &item, array);
+  if (TJS_FAILED(status)) {
+    array->Release();
+    return status;
+  }
+  result->SetObject(array, array);
+  array->Release();
+  return TJS_S_OK;
+}
+
+tjs_error TJS_INTF_METHOD system_create_app_lock(
+    tTJSVariant *result, tjs_int, tTJSVariant **, iTJSDispatch2 *) {
+  // Yuri's mobile host treats the single-instance lock as already acquired.
+  if (result) *result = static_cast<tjs_int>(1);
+  return TJS_S_OK;
+}
+
 void set_method(iTJSDispatch2 *object, const tjs_char *name,
                 tTJSNativeClassMethodCallback callback) {
   iTJSDispatch2 *method = TJSCreateNativeClassMethod(callback);
@@ -294,7 +431,75 @@ void set_global_object(tTJS *engine, const tjs_char *name,
   if (TJS_FAILED(status)) throw_storage_error("cannot register Linux TJS object");
 }
 
+void set_global_property(tTJS *engine, const tjs_char *name,
+                         const tTJSVariant &value) {
+  const tjs_error status = engine->GetGlobalNoAddRef()->PropSet(
+      TJS_MEMBERENSURE | TJS_IGNOREPROP, name, nullptr, &value,
+      engine->GetGlobalNoAddRef());
+  if (TJS_FAILED(status)) throw_storage_error("cannot register Linux TJS constant");
+}
+
+void set_property(iTJSDispatch2 *object, const tjs_char *name,
+                  const tTJSVariant &value) {
+  const tjs_error status = object->PropSet(
+      TJS_MEMBERENSURE | TJS_IGNOREPROP, name, nullptr, &value, object);
+  if (TJS_FAILED(status)) throw_storage_error("cannot register Linux TJS property");
+}
+
 void install_storage_compatibility(tTJS *engine) {
+  iTJSDispatch2 *debug = TJSCreateDictionaryObject();
+  try {
+    set_method(debug, TJS_W("message"), debug_message);
+    set_method(debug, TJS_W("notice"), debug_message);
+    set_method(debug, TJS_W("warning"), debug_message);
+    set_method(debug, TJS_W("getTickCount"), debug_get_tick_count);
+    set_method(debug, TJS_W("logAsError"), storage_noop);
+    set_global_object(engine, TJS_W("Debug"), debug);
+  } catch (...) {
+    debug->Release();
+    throw;
+  }
+  debug->Release();
+
+  iTJSDispatch2 *system = TJSCreateDictionaryObject();
+  try {
+    set_property(system, TJS_W("exePath"), tTJSVariant(TJS_W("")));
+    set_property(system, TJS_W("personalPath"), tTJSVariant(TJS_W("")));
+    set_property(system, TJS_W("osName"), tTJSVariant(TJS_W("Linux")));
+    set_property(system, TJS_W("platformName"), tTJSVariant(TJS_W("Linux")));
+    set_property(system, TJS_W("versionString"), tTJSVariant(TJS_W("Kirikiroid2 Linux")));
+    set_property(system, TJS_W("eventDisabled"), tTJSVariant(static_cast<tjs_int>(0)));
+    set_method(system, TJS_W("createAppLock"), system_create_app_lock);
+    set_method(system, TJS_W("getTickCount"), debug_get_tick_count);
+    set_method(system, TJS_W("inform"), debug_message);
+    set_global_object(engine, TJS_W("System"), system);
+  } catch (...) {
+    system->Release();
+    throw;
+  }
+  system->Release();
+
+  iTJSDispatch2 *plugins = TJSCreateDictionaryObject();
+  try {
+    set_method(plugins, TJS_W("link"), plugins_link);
+    set_method(plugins, TJS_W("unlink"), plugins_unlink);
+    set_method(plugins, TJS_W("getList"), plugins_get_list);
+    set_global_object(engine, TJS_W("Plugins"), plugins);
+  } catch (...) {
+    plugins->Release();
+    throw;
+  }
+  plugins->Release();
+
+  set_global_property(engine, TJS_W("gcsAuto"),
+                      tTJSVariant(static_cast<tjs_int>(-1)));
+  set_global_property(engine, TJS_W("crArrow"),
+                      tTJSVariant(static_cast<tjs_int>(-2)));
+  set_global_property(engine, TJS_W("crHandPoint"),
+                      tTJSVariant(static_cast<tjs_int>(-21)));
+  set_global_property(engine, TJS_W("crSizeAll"),
+                      tTJSVariant(static_cast<tjs_int>(-22)));
+
   iTJSDispatch2 *scripts = TJSCreateDictionaryObject();
   try {
     set_method(scripts, TJS_W("execStorage"), scripts_exec_storage);
@@ -317,8 +522,8 @@ void install_storage_compatibility(tTJS *engine) {
     set_method(storages, TJS_W("extractStorageName"), storages_extract_name);
     set_method(storages, TJS_W("extractStoragePath"), storages_extract_path);
     set_method(storages, TJS_W("chopStorageExt"), storages_chop_ext);
-    set_method(storages, TJS_W("addAutoPath"), storage_noop);
-    set_method(storages, TJS_W("removeAutoPath"), storage_noop);
+    set_method(storages, TJS_W("addAutoPath"), storages_add_auto_path);
+    set_method(storages, TJS_W("removeAutoPath"), storages_remove_auto_path);
     set_method(storages, TJS_W("clearArchiveCache"), storage_noop);
     set_global_object(engine, TJS_W("Storages"), storages);
   } catch (...) {

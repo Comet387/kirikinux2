@@ -1142,7 +1142,12 @@ void tTJSVariant::operator +=(const tTJSVariant &rhs)
 		tTJSVariantString *s1, *s2;
 		s1 = AsString();
 		s2 = rhs.AsString();
-		val.String = TJSAllocVariantString(*s1, *s2);
+		// Empty strings are represented by null variant-string pointers.  Do
+		// not invoke conversion operators through those null pointers while
+		// concatenating mixed TJS values.
+		val.String = TJSAllocVariantString(
+			s1 ? s1->operator const tjs_char *() : TJS_W(""),
+			s2 ? s2->operator const tjs_char *() : TJS_W(""));
 		if(s1) s1->Release();
 		if(s2) s2->Release();   
 		*this=val;
@@ -1280,4 +1285,3 @@ void tTJSVariant::Persist(tjs_uint8 * dest)
 
 
 } // namespace TJS
-

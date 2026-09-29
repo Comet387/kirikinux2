@@ -365,10 +365,12 @@ bool Xp3Archive::read(const std::string &name, std::vector<std::uint8_t> &data,
     error = "file not found in XP3 archive: " + name;
     return false;
   }
-  if (entry->flags & kFileProtected) {
-    error = "protected XP3 entries require an extraction filter: " + entry->name;
-    return false;
-  }
+  // The high "protected" bit tells TVP to invoke an extraction filter when
+  // one is installed.  It does not, by itself, mean that the payload is
+  // encrypted.  A number of ordinary KAG archives (including the upstream
+  // fork3 test fixture) set the bit while storing plain raw/zlib segments.
+  // Read those bytes normally; a future filter hook may transform them after
+  // decompression when a game actually supplies xp3filter.tjs.
   if (entry->original_size > kMaxReadableEntrySize ||
       entry->original_size > std::numeric_limits<std::size_t>::max()) {
     error = "XP3 entry is too large for this build";

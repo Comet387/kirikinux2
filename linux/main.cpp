@@ -1,4 +1,5 @@
 #include "kirkr_host.h"
+#include "launcher.h"
 
 #include <cstdlib>
 #include <cstdio>
@@ -20,6 +21,7 @@ static void usage(const char *name) {
             << "  --engine FILE       load optional bridge library\n"
             << "  --eval EXPR         evaluate a TJS2 expression and exit\n"
             << "  --script STORAGE    execute FILE or quoted XP3>ENTRY and exit\n"
+            << "  --cat STORAGE       print FILE or quoted XP3>ENTRY and exit\n"
             << "  --size WxH          set window size (default 960x640)\n"
             << "  --fullscreen        request desktop fullscreen\n"
             << "  -h, --help          show this help\n";
@@ -53,6 +55,8 @@ int main(int argc, char **argv) {
       options.expression = argv[++i];
     } else if (arg == "--script" && i + 1 < argc) {
       options.script = argv[++i];
+    } else if (arg == "--cat" && i + 1 < argc) {
+      options.cat_storage = argv[++i];
     } else if (arg == "--size" && i + 1 < argc) {
       int width = 0, height = 0;
       if (std::sscanf(argv[++i], "%dx%d", &width, &height) != 2 || width < 64 || height < 64) {
@@ -72,10 +76,16 @@ int main(int argc, char **argv) {
   const int actions = static_cast<int>(options.probe_only) +
       static_cast<int>(options.list_archive) + static_cast<int>(options.run_startup) +
       static_cast<int>(options.expression.has_value()) +
-      static_cast<int>(options.script.has_value());
+      static_cast<int>(options.script.has_value()) +
+      static_cast<int>(options.cat_storage.has_value());
   if (actions > 1) {
-    std::cerr << "--probe, --list, --run, --eval and --script cannot be combined\n";
+    std::cerr << "--probe, --list, --run, --eval, --script and --cat cannot be combined\n";
     return 64;
+  }
+  if (actions == 0 && !options.no_window && options.engine_library.empty()) {
+    const int launcher_status = krkr2::run_graphical_launcher(options);
+    if (launcher_status != krkr2::kGraphicalLauncherUnavailable)
+      return launcher_status;
   }
   return krkr2::run_host(options);
 }

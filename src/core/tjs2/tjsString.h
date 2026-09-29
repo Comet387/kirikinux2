@@ -419,9 +419,12 @@ public:
 
 	TJS_CONST_METHOD_DEF(tjs_int, GetLen, ())
 	{
-#ifdef __CODEGUARD__
-		if(!Ptr) return 0; // tTJSVariantString::GetLength can return zero if 'this' is NULL
-#endif
+		// A null Ptr is the canonical representation of an empty TJS string.
+		// This guard must not be limited to CodeGuard builds: calling
+		// GetLength through null is undefined behaviour in optimized GCC/Clang
+		// builds even though the historic implementation checked `this` inside
+		// tTJSVariantString::GetLength.
+		if(!Ptr) return 0;
 		return Ptr->GetLength();
 	}
 

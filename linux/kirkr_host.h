@@ -34,6 +34,7 @@ struct HostOptions {
   std::string game;
   std::optional<std::string> expression;
   std::optional<std::string> script;
+  std::optional<std::string> cat_storage;
 };
 
 /** Run the native event loop. Returns a process exit status. */

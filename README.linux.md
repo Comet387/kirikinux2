@@ -6,12 +6,16 @@ It currently provides:
 
 - the repository's original TJS2 interpreter, built natively on Linux, with
   command-line expression evaluation and UTF-8/BOM-marked UTF-16 script execution;
+- a GTK3 game-library UI with folder/XP3 selection, drag-and-drop, recent
+  games, removal, double-click launch, and in-window startup errors;
 - X11 window/input backend, with SDL2 fallback when Xlib is unavailable;
-- command-line game directory and XP3 selection plus XP3 magic validation;
+- command-line game directory and XP3/embedded-XP3 selection;
 - read-only XP3 index/segment support (`--list`), including compressed indices
   and direct UTF-8/BOM-marked UTF-16 TJS execution via `archive.xp3>entry.tjs`;
-- directory/XP3 startup execution (`--run`) with minimal compatible `Scripts`
-  and `Storages` objects for nested script loading and path queries;
+- directory/XP3 startup execution (`--run`) with compatible `Scripts`,
+  `Storages`, `System`, `Debug`, and controlled `Plugins` objects;
+- real internal `Storages.addAutoPath` lookup, protected-flag-compatible XP3
+  reads, and optimized-build fixes for TJS empty strings;
 - drag-and-drop selection in the SDL2 backend, fullscreen toggle, Escape/close handling;
 - a small `dlopen` bridge (`krkr2_linux_tick` / `krkr2_linux_shutdown`) for the
   remaining renderer/audio integration;
@@ -32,5 +36,8 @@ The Android APK also bundles an ARM-only `libgame.so` and vendor libraries that
 are not present in the public repository. TJS2 is now native, but a playable
 port still needs KAGParser and the window/layer/system TVP objects,
 protected-archive filters, renderer, input dispatch and audio backend. This
-target does not substitute a different Kirikiri engine or an emulator. See
+target does not substitute a different Kirikiri engine or an emulator. The
+fork3 `_testdata/data.xp3` currently reaches KAG System and stops at
+`system/LayerEx.tjs:39` because native `Layer` rendering is still missing; it
+does not yet display a playable game. See
 `docs/apk-1.3.9-analysis.md` and `docs/linux-port-research.md`.

@@ -791,7 +791,12 @@ public:
 	{
 		// returns String
 		if(vt!=tvtString) TJSThrowVariantConvertError(*this, tvtString);
-		return *String;
+		// TJS represents the empty string with a null tTJSVariantString pointer.
+		// Calling an instance method through that pointer is undefined behaviour;
+		// optimized Linux builds consequently crashed while KAG handled
+		// System.exePath == "".  Preserve the original value semantics without
+		// relying on the old "if(!this)" member-function idiom.
+		return String ? String->operator const tjs_char *() : TJS_W("");
 	}
 
 	TJS_METHOD_DEF(tjs_uint32 *, GetHint, ())
@@ -1251,6 +1256,5 @@ public:
 
 } // namespace TJS
 #endif
-
 
 
